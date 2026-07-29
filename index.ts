@@ -78,6 +78,18 @@ function firstSelectable(rows: Row[]): number {
 	return i < 0 ? 0 : i;
 }
 
+const nearestSelectable = (rs: Row[], target: number): number => {
+	if (rs.length === 0) return 0;
+	const clamp = Math.max(0, Math.min(target, rs.length - 1));
+	for (let d = 0; d < rs.length; d++) {
+		const down = clamp + d;
+		if (down < rs.length && rs[down].kind === "model") return down;
+		const up = clamp - d;
+		if (up >= 0 && rs[up].kind === "model") return up;
+	}
+	return firstSelectable(rs);
+};
+
 export default function modelFavorites(pi: ExtensionAPI): void {
 	pi.registerCommand("m", {
 		description: "Select a model — favorites pinned to the top",
@@ -117,12 +129,13 @@ export default function modelFavorites(pi: ExtensionAPI): void {
 				};
 				const rebuild = (): void => {
 					const keep = focusedKey();
+					const prevCursor = cursor;
 					rows = computeRows();
 					cursor =
 						keep !== undefined
 							? rows.findIndex((r) => r.kind === "model" && modelKey(r.model) === keep)
 							: -1;
-					if (cursor < 0) cursor = firstSelectable(rows);
+					if (cursor < 0) cursor = nearestSelectable(rows, prevCursor);
 				};
 				const moveCursor = (delta: number): void => {
 					let next = cursor;
@@ -160,6 +173,7 @@ export default function modelFavorites(pi: ExtensionAPI): void {
 					} else {
 						hiddenSet.add(key);
 						config.hidden.push(key);
+						showHidden = true;
 					}
 					saveConfig(config);
 					rebuild();

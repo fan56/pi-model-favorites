@@ -1,6 +1,6 @@
 {
   "name": "@aiwayds/pi-model-favorites",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Custom /m model picker for pi with favorites pinned above a divider and hide support",
   "type": "module",
   "license": "MIT",
