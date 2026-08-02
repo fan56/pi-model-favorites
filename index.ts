@@ -15,6 +15,46 @@ type Row =
 	| { kind: "divider" }
 	| { kind: "header"; label: string };
 
+const VISIBLE = 10;
+
+function windowSlice(
+	rows: Row[],
+	winStart: number,
+	winEnd: number,
+	scroll: number,
+): { start: number; end: number; moreAbove: boolean; moreBelow: boolean } {
+	// Advance `start` from winStart past `scroll` model rows (header/divider rows don't count).
+	let start = winStart;
+	let skipped = 0;
+	while (start < winEnd && skipped < scroll) {
+		if (rows[start].kind === "model") skipped++;
+		start++;
+	}
+	// Then extend `end` from start to include up to VISIBLE model rows (headers pass through).
+	let end = start;
+	let counted = 0;
+	while (end < winEnd && counted < VISIBLE) {
+		if (rows[end].kind === "model") counted++;
+		end++;
+	}
+	let moreBelow = false;
+	for (let i = end; i < winEnd; i++) {
+		if (rows[i].kind === "model") {
+			moreBelow = true;
+			break;
+		}
+	}
+	return { start, end, moreAbove: scroll > 0, moreBelow };
+}
+
+function clampScroll(rows: Row[], winStart: number, winEnd: number, scroll: number): number {
+	let total = 0;
+	for (let i = winStart; i < winEnd; i++) {
+		if (rows[i].kind === "model") total++;
+	}
+	return Math.max(0, Math.min(scroll, Math.max(0, total - VISIBLE)));
+}
+
 const modelKey = (m: Model<Api>): string => `${m.provider}/${m.id}`;
 
 function configPath(): string {
@@ -116,8 +156,10 @@ export default function modelFavorites(pi: ExtensionAPI): void {
 				const computeRows = (): Row[] => buildRows(models.filter(matches), favSet, hiddenSet, showHidden);
 				let rows = computeRows();
 				let cursor = firstSelectable(rows);
+				let favScroll = 0; // # model rows hidden above the favorites window's visible slice
+				let modelScroll = 0; // same for the model window
 				let version = 0;
-				let cached: { version: number; width: number; lines: string[] } | undefined;
+				let cached: { version: number; width: number; favScroll: number; modelScroll: number; lines: string[] } | undefined;
 
 				const focusedModel = (): Model<Api> | undefined => {
 					const r = rows[cursor];
@@ -136,6 +178,7 @@ export default function modelFavorites(pi: ExtensionAPI): void {
 							? rows.findIndex((r) => r.kind === "model" && modelKey(r.model) === keep)
 							: -1;
 					if (cursor < 0) cursor = nearestSelectable(rows, prevCursor);
+					ensureCursorVisible();
 				};
 				const moveCursor = (delta: number): void => {
 					let next = cursor;
@@ -143,8 +186,38 @@ export default function modelFavorites(pi: ExtensionAPI): void {
 						next += delta;
 						if (rows[next].kind === "model") {
 							cursor = next;
-							return;
+							break;
 						}
+					}
+					ensureCursorVisible();
+				};
+				const ensureCursorVisible = (): void => {
+					const dividerIdx = rows.findIndex((r) => r.kind === "divider");
+					if (dividerIdx < 0) {
+						let before = 0;
+						for (let i = 0; i < cursor; i++) if (rows[i].kind === "model") before++;
+						let s = Math.min(modelScroll, before);
+						if (before >= s + VISIBLE) s = before - VISIBLE + 1;
+						s = clampScroll(rows, 0, rows.length, s);
+						modelScroll = s;
+						return;
+					}
+					if (cursor < dividerIdx) {
+						let before = 0;
+						for (let i = 0; i < cursor; i++) if (rows[i].kind === "model") before++;
+						let s = Math.min(favScroll, before);
+						if (before >= s + VISIBLE) s = before - VISIBLE + 1;
+						s = clampScroll(rows, 0, dividerIdx, s);
+						favScroll = s;
+						modelScroll = clampScroll(rows, dividerIdx + 1, rows.length, modelScroll);
+					} else {
+						let before = 0;
+						for (let i = dividerIdx + 1; i < cursor; i++) if (rows[i].kind === "model") before++;
+						let s = Math.min(modelScroll, before);
+						if (before >= s + VISIBLE) s = before - VISIBLE + 1;
+						s = clampScroll(rows, dividerIdx + 1, rows.length, s);
+						modelScroll = s;
+						favScroll = clampScroll(rows, 0, dividerIdx, favScroll);
 					}
 				};
 				const toggleFavorite = (): void => {
@@ -182,28 +255,46 @@ export default function modelFavorites(pi: ExtensionAPI): void {
 				};
 
 				const render = (width: number): string[] => {
-					if (cached && cached.version === version && cached.width === width) {
+					if (
+						cached &&
+						cached.version === version &&
+						cached.width === width &&
+						cached.favScroll === favScroll &&
+						cached.modelScroll === modelScroll
+					) {
 						return cached.lines;
 					}
 					const lines: string[] = [theme.fg("accent", theme.bold("Select Model"))];
 					const hasSelectable = rows.some((r) => r.kind === "model");
-					rows.forEach((r, i) => {
-						if (r.kind === "divider") {
-							lines.push(theme.fg("border", "─".repeat(Math.max(1, width))));
-						} else if (r.kind === "header") {
-							lines.push(theme.fg("dim", r.label));
-						} else {
-							const key = modelKey(r.model);
-							const text = `${favSet.has(key) ? "★ " : "  "}${r.model.name} (${r.model.provider})${key === currentKey ? " ●" : ""}`;
-							if (i === cursor) {
-								lines.push(theme.bg("selectedBg", theme.fg("accent", `▸ ${text}`)));
-							} else if (hiddenSet.has(key)) {
-								lines.push(theme.fg("dim", `  ${text}`));
-							} else {
-								lines.push(`  ${text}`);
+					const dividerIdx = rows.findIndex((r) => r.kind === "divider");
+					const renderWindow = (winStart: number, winEnd: number, scroll: number): void => {
+						const { start, end, moreAbove, moreBelow } = windowSlice(rows, winStart, winEnd, scroll);
+						if (moreAbove) lines.push(theme.fg("dim", "  ▲"));
+						for (let i = start; i < end; i++) {
+							const r = rows[i];
+							if (r.kind === "header") {
+								lines.push(theme.fg("dim", r.label));
+							} else if (r.kind === "model") {
+								const key = modelKey(r.model);
+								const text = `${favSet.has(key) ? "★ " : "  "}${r.model.name} (${r.model.provider})${key === currentKey ? " ●" : ""}`;
+								if (i === cursor) {
+									lines.push(theme.bg("selectedBg", theme.fg("accent", `▸ ${text}`)));
+								} else if (hiddenSet.has(key)) {
+									lines.push(theme.fg("dim", `  ${text}`));
+								} else {
+									lines.push(`  ${text}`);
+								}
 							}
 						}
-					});
+						if (moreBelow) lines.push(theme.fg("dim", "  ▼"));
+					};
+					if (dividerIdx >= 0) {
+						renderWindow(0, dividerIdx, favScroll);
+						lines.push(theme.fg("border", "─".repeat(Math.max(1, width))));
+						renderWindow(dividerIdx + 1, rows.length, modelScroll);
+					} else {
+						renderWindow(0, rows.length, modelScroll);
+					}
 					if (!hasSelectable) {
 						lines.push(theme.fg("dim", "  (no models match)"));
 					}
@@ -212,7 +303,7 @@ export default function modelFavorites(pi: ExtensionAPI): void {
 					} else {
 						lines.push(theme.fg("dim", "↑↓ nav • enter select • f fav • h hide • v hidden • / filter • esc cancel"));
 					}
-					cached = { version, width, lines };
+					cached = { version, width, favScroll, modelScroll, lines };
 					return lines;
 				};
 

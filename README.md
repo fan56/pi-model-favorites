@@ -8,6 +8,8 @@ favorite models above a divider and lets you hide models you never use.
 Replaces the default model picker with one that:
 
 - Pins favorited models to the top, above a divider line.
+- Shows each list (favorites / models) as its own scrollable window of up to
+  10 rows — the picker never truncates no matter how many models are configured.
 - Marks the currently active model with a `●`.
 - Lets you hide models you don't want to see, with a collapsible "Hidden" section.
 - Supports live filtering by model name, id, or provider.
@@ -16,16 +18,20 @@ Favorites and hidden models persist to `~/.pi/agent/model-favorites.json`.
 
 ## What it looks like
 
-**Main view** — favorites pinned above the divider, current model marked `●`:
+**Main view** — favorites pinned above the divider. Each list is its own
+scrollable window (up to 10 rows visible); `▲`/`▼` indicate more rows above/below
+— keep pressing `↓` past the bottom to scroll:
 
 ```
 Select Model
 ▸ ★ claude-sonnet-4 (anthropic) ●
   ★ glm-5.2 (zai)
+  ★ gpt-5 (openai)
 ──────────────────────────────────────
     claude-haiku-4-5 (anthropic)
-    gpt-5 (openai)
     gemini-2.5-pro (google)
+    deepseek-v4 (deepseek)
+  ▼
 ↑↓ nav • enter select • f fav • h hide • v hidden • / filter • esc cancel
 ```
 
