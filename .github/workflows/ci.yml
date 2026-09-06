@@ -1,0 +1,66 @@
+# CI: install + every script gate the package declares (typecheck / check /
+# test / smoke, each --if-present) + an `npm pack --dry-run` that fails when
+# the published tarball would miss an entry file. Runs on every push to main,
+# every pull request, and a daily schedule — the daily run catches upstream
+# pi drift (the devDependency closure moves under us) without hand-pinning.
+#
+# No dsh CLI here: these are pi-coding-agent extensions. The host closure is
+# the npm-installed @earendil-works/* devDependencies, resolved fresh on
+# every run.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Daily 04:20 UTC — catches upstream pi drift without hand-pinning.
+    - cron: '20 4 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Check & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        # The shipped engines floor plus current LTS.
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install dependencies
+        # Repos with a lockfile get the reproducible install; the rest
+        # resolve the @earendil-works/* devDependency closure fresh.
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Typecheck
+        run: npm run typecheck --if-present
+
+      - name: Check
+        run: npm run check --if-present
+
+      - name: Test
+        run: npm run test --if-present
+
+      - name: Smoke (jiti loads the extension entry)
+        run: npm run smoke --if-present
+
+      - name: Pack dry-run (files must cover the entry points)
+        run: npm pack --dry-run
