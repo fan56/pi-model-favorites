@@ -38,7 +38,7 @@
     "typescript": "^5.6.0"
   },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.mjs",
     "smoke": "node smoke-test.cjs",
     "typecheck": "tsc --noEmit"
   }
