@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey } from "@earendil-works/pi-tui";
+import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 
 type FavoritesConfig = {
 	favorites: string[];
@@ -303,8 +303,18 @@ export default function modelFavorites(pi: ExtensionAPI): void {
 					} else {
 						lines.push(theme.fg("dim", "↑↓ nav • enter select • f fav • h hide • v hidden • / filter • esc cancel"));
 					}
-					cached = { version, width, favScroll, modelScroll, lines };
-					return lines;
+					cached = {
+						version,
+						width,
+						favScroll,
+						modelScroll,
+						// pi-tui's render loop treats any line wider than the terminal as
+						// fatal (#1): clip every line — ANSI-aware — at the single exit
+						// point, so footer hints and long model names degrade to a visual
+						// clip instead of killing the whole session.
+						lines: lines.map((l) => truncateToWidth(l, Math.max(1, width))),
+					};
+					return cached.lines;
 				};
 
 				const handleInput = (data: string): void => {
