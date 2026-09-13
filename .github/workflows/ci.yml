@@ -64,3 +64,17 @@ jobs:
 
       - name: Pack dry-run (files must cover the entry points)
         run: npm pack --dry-run
+
+      - name: Pi release sentinel (schedule only)
+        if: github.event_name == 'schedule'
+        run: |
+          set +e
+          for pkg in $(node -p "Object.keys({...require('./package.json').dependencies,...require('./package.json').devDependencies}).filter(k=>k.startsWith('@earendil-works/')).join(' ')")
+          do
+            locked=$(node -p "require('./package-lock.json').packages['node_modules/$pkg']?.version || 'unknown'")
+            latest=$(npm view "$pkg" version --registry=https://registry.npmjs.org 2>/dev/null) || { echo "::warning::$pkg npm view failed (skipped)"; continue; }
+            if [ "$locked" != "$latest" ]; then
+              echo "::warning::$pkg $latest available (locked: $locked)"
+            fi
+          done
+          exit 0
