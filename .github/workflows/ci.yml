@@ -1,8 +1,7 @@
 # CI: install + every script gate the package declares (typecheck / check /
 # test / smoke, each --if-present) + an `npm pack --dry-run` that fails when
-# the published tarball would miss an entry file. Runs on every push to main,
-# every pull request, and a daily schedule — the daily run catches upstream
-# pi drift (the devDependency closure moves under us) without hand-pinning.
+# the published tarball would miss an entry file. Runs on every push to main
+# and every pull request.
 #
 # No dsh CLI here: these are pi-coding-agent extensions. The host closure is
 # the npm-installed @earendil-works/* devDependencies, resolved fresh on
@@ -13,9 +12,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    # Daily 04:20 UTC — catches upstream pi drift without hand-pinning.
-    - cron: '20 4 * * *'
 
 permissions:
   contents: read
@@ -64,17 +60,3 @@ jobs:
 
       - name: Pack dry-run (files must cover the entry points)
         run: npm pack --dry-run
-
-      - name: Pi release sentinel (schedule only)
-        if: github.event_name == 'schedule'
-        run: |
-          set +e
-          for pkg in $(node -p "Object.keys({...require('./package.json').dependencies,...require('./package.json').devDependencies}).filter(k=>k.startsWith('@earendil-works/')).join(' ')")
-          do
-            locked=$(node -p "require('./package-lock.json').packages['node_modules/$pkg']?.version || 'unknown'")
-            latest=$(npm view "$pkg" version --registry=https://registry.npmjs.org 2>/dev/null) || { echo "::warning::$pkg npm view failed (skipped)"; continue; }
-            if [ "$locked" != "$latest" ]; then
-              echo "::warning::$pkg $latest available (locked: $locked)"
-            fi
-          done
-          exit 0
